@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vitality Planner Pro</title>
+    <title>Meal Planner</title>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -27,45 +27,55 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // Configuration setup
+        // Safety guards for GitHub Pages environment
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "" };
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'vitality-planner-standalone';
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'meal-planner-standalone';
         
-        // Initialize Firebase
-        if (!firebase.apps.length) {
+        if (firebaseConfig.apiKey && !firebase.apps.length) {
             firebase.initializeApp(firebaseConfig);
         }
-        const db = firebase.firestore();
-        const auth = firebase.auth();
 
-        const MEAL_OPTIONS = [
-            "Select Meal",
-            "Steel-cut Oats with Dates",
-            "Buckwheat Porridge",
-            "Mediterranean Avocado Toast",
-            "Performance Kitchari",
-            "Mediterranean Quinoa Bowl",
-            "Walnut-Basil Lentil Pasta",
-            "Vegetable & Shrimp Paella",
-            "Salmon with Roasted Beets",
-            "Ground Turkey & Sweet Potato",
-            "Chicken Thigh Tagine",
-            "Red Lentil Dal",
-            "Golden Milk Smoothie"
-        ];
+        const MEAL_DATA = {
+            "Select Meal": { cal: 0, p: 0, c: 0, f: 0 },
+            "Steel-cut Oats with Dates": { cal: 380, p: 12, c: 65, f: 8 },
+            "Buckwheat Porridge": { cal: 320, p: 10, c: 58, f: 6 },
+            "Mediterranean Avocado Toast": { cal: 420, p: 14, c: 35, f: 26 },
+            "Performance Kitchari": { cal: 450, p: 18, c: 72, f: 12 },
+            "Mediterranean Quinoa Bowl": { cal: 480, p: 16, c: 68, f: 18 },
+            "Walnut-Basil Lentil Pasta": { cal: 520, p: 24, c: 75, f: 15 },
+            "Vegetable & Shrimp Paella": { cal: 550, p: 32, c: 80, f: 10 },
+            "Salmon with Roasted Beets": { cal: 580, p: 42, c: 45, f: 28 },
+            "Ground Turkey & Sweet Potato": { cal: 490, p: 38, c: 52, f: 14 },
+            "Chicken Thigh Tagine": { cal: 610, p: 35, c: 48, f: 32 },
+            "Red Lentil Dal": { cal: 410, p: 22, c: 65, f: 9 },
+            "Golden Milk Smoothie": { cal: 350, p: 8, c: 55, f: 14 }
+        };
+
+        const MEAL_OPTIONS = Object.keys(MEAL_DATA);
 
         const App = () => {
             const [user, setUser] = useState(null);
             const [meals, setMeals] = useState([]);
             const [loading, setLoading] = useState(true);
             const [syncing, setSyncing] = useState(false);
+            const [showNutrition, setShowNutrition] = useState({});
 
             const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
             const slots = ["Breakfast", "Lunch", "Dinner"];
 
             useEffect(() => {
+                if (!firebaseConfig.apiKey) {
+                    const initialGrid = days.map(day => ({
+                        day, Breakfast: "Select Meal", Lunch: "Select Meal", Dinner: "Select Meal"
+                    }));
+                    setMeals(initialGrid);
+                    setLoading(false);
+                    return;
+                }
+
                 const initAuth = async () => {
                     try {
+                        const auth = firebase.auth();
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                             await auth.signInWithCustomToken(__initial_auth_token);
                         } else {
@@ -73,18 +83,19 @@
                         }
                     } catch (err) {
                         console.error("Auth error:", err);
+                        setLoading(false);
                     }
                 };
                 initAuth();
-                return auth.onAuthStateChanged(u => {
+                return firebase.auth().onAuthStateChanged(u => {
                     setUser(u);
                     if (!u) setLoading(false);
                 });
             }, []);
 
             useEffect(() => {
-                if (!user) return;
-
+                if (!user || !firebaseConfig.apiKey) return;
+                const db = firebase.firestore();
                 const planDoc = db.doc(`artifacts/${appId}/users/${user.uid}/plans/current`);
                 
                 const unsubscribe = planDoc.onSnapshot((doc) => {
@@ -92,10 +103,7 @@
                         setMeals(doc.data().grid);
                     } else {
                         const initialGrid = days.map(day => ({
-                            day,
-                            Breakfast: "Select Meal",
-                            Lunch: "Select Meal",
-                            Dinner: "Select Meal"
+                            day, Breakfast: "Select Meal", Lunch: "Select Meal", Dinner: "Select Meal"
                         }));
                         setMeals(initialGrid);
                     }
@@ -104,7 +112,6 @@
                     console.error("Firestore error:", error);
                     setLoading(false);
                 });
-
                 return () => unsubscribe();
             }, [user]);
 
@@ -113,10 +120,10 @@
                 newMeals[dayIdx][slot] = value;
                 setMeals(newMeals);
 
-                if (!user) return;
+                if (!user || !firebaseConfig.apiKey) return;
                 setSyncing(true);
                 try {
-                    await db.doc(`artifacts/${appId}/users/${user.uid}/plans/current`).set({
+                    await firebase.firestore().doc(`artifacts/${appId}/users/${user.uid}/plans/current`).set({
                         grid: newMeals,
                         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                     });
@@ -127,11 +134,23 @@
                 }
             };
 
+            const calculateDailyTotal = (dayData) => {
+                return slots.reduce((acc, slot) => {
+                    const data = MEAL_DATA[dayData[slot]] || MEAL_DATA["Select Meal"];
+                    return {
+                        cal: acc.cal + data.cal,
+                        p: acc.p + data.p,
+                        c: acc.c + data.c,
+                        f: acc.f + data.f
+                    };
+                }, { cal: 0, p: 0, c: 0, f: 0 });
+            };
+
             if (loading) return (
                 <div className="flex h-screen items-center justify-center bg-white">
                     <div className="flex flex-col items-center gap-4">
                         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-                        <p className="text-slate-500 font-medium">Initialising Vitality Cloud...</p>
+                        <p className="text-slate-500 font-medium">Loading Planner...</p>
                     </div>
                 </div>
             );
@@ -141,14 +160,10 @@
                     <nav className="bg-white border-b px-4 py-4 sticky top-0 z-10 shadow-sm">
                         <div className="max-w-4xl mx-auto flex justify-between items-center">
                             <div className="flex items-center gap-3">
-                                <div className="bg-indigo-600 p-2 rounded-xl text-white">
-                                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                    </svg>
-                                </div>
+                                <div className="bg-indigo-600 p-2 rounded-xl text-white font-bold text-xl italic">MP</div>
                                 <div>
-                                    <h1 className="text-xl font-bold text-slate-800 leading-tight">Vitality Planner</h1>
-                                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Ayurvedic Standalone</p>
+                                    <h1 className="text-xl font-bold text-slate-800 leading-tight">Meal Planner</h1>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider text-indigo-600">Nutrition Sync</p>
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
@@ -162,36 +177,72 @@
                     </nav>
 
                     <main className="max-w-4xl mx-auto p-4 md:p-6 animate-fade-in">
-                        <div className="grid gap-4">
-                            {meals.map((dayData, dIdx) => (
-                                <div key={dayData.day} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                                    <div className="bg-slate-50 px-6 py-2 border-b border-slate-100 flex justify-between items-center">
-                                        <span className="font-bold text-slate-700">{dayData.day}</span>
-                                    </div>
-                                    <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-                                        {slots.map(slot => (
-                                            <div key={slot} className="space-y-1">
-                                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">{slot}</label>
-                                                <select 
-                                                    value={dayData[slot]}
-                                                    onChange={(e) => updateMeal(dIdx, slot, e.target.value)}
-                                                    className="w-full bg-slate-50 border border-slate-200 text-slate-700 rounded-lg text-sm p-2 outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
-                                                >
-                                                    {MEAL_OPTIONS.map(opt => (
-                                                        <option key={opt} value={opt}>{opt}</option>
-                                                    ))}
-                                                </select>
+                        <div className="grid gap-6">
+                            {meals.map((dayData, dIdx) => {
+                                const totals = calculateDailyTotal(dayData);
+                                return (
+                                    <div key={dayData.day} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                                        <div className="bg-slate-50 px-6 py-3 border-b border-slate-100 flex justify-between items-center">
+                                            <div className="flex items-center gap-4">
+                                                <span className="font-bold text-slate-700 text-lg">{dayData.day}</span>
+                                                <span className="bg-slate-200/50 px-2 py-0.5 rounded text-[11px] font-bold text-slate-600">
+                                                    {totals.cal} kCal
+                                                </span>
                                             </div>
-                                        ))}
+                                            <button 
+                                                onClick={() => setShowNutrition(p => ({...p, [dayData.day]: !p[dayData.day]}))}
+                                                className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider"
+                                            >
+                                                {showNutrition[dayData.day] ? "Hide Macros" : "View Macros"}
+                                            </button>
+                                        </div>
+                                        
+                                        {showNutrition[dayData.day] && (
+                                            <div className="bg-indigo-50/50 px-6 py-4 border-b border-indigo-100 grid grid-cols-4 gap-2 animate-fade-in">
+                                                <div className="text-center">
+                                                    <p className="text-[9px] uppercase font-bold text-indigo-400">Calories</p>
+                                                    <p className="text-sm font-black text-indigo-900">{totals.cal}</p>
+                                                </div>
+                                                <div className="text-center">
+                                                    <p className="text-[9px] uppercase font-bold text-emerald-500">Protein</p>
+                                                    <p className="text-sm font-black text-slate-700">{totals.p}g</p>
+                                                </div>
+                                                <div className="text-center">
+                                                    <p className="text-[9px] uppercase font-bold text-amber-500">Carbs</p>
+                                                    <p className="text-sm font-black text-slate-700">{totals.c}g</p>
+                                                </div>
+                                                <div className="text-center">
+                                                    <p className="text-[9px] uppercase font-bold text-rose-400">Fats</p>
+                                                    <p className="text-sm font-black text-slate-700">{totals.f}g</p>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-6">
+                                            {slots.map(slot => (
+                                                <div key={slot} className="space-y-1">
+                                                    <label className="text-[10px] font-bold text-slate-400 uppercase">{slot}</label>
+                                                    <select 
+                                                        value={dayData[slot]}
+                                                        onChange={(e) => updateMeal(dIdx, slot, e.target.value)}
+                                                        className="w-full bg-slate-50 border border-slate-200 text-slate-700 rounded-lg text-sm p-3 outline-none focus:ring-2 focus:ring-indigo-500"
+                                                    >
+                                                        {MEAL_OPTIONS.map(opt => (
+                                                            <option key={opt} value={opt}>{opt}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </main>
 
                     <footer className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-sm border-t p-3 text-center">
-                        <p className="text-[9px] text-slate-400 font-mono uppercase">
-                            Standalone Cloud Version • User: {user?.uid?.substring(0,8)}...
+                        <p className="text-[9px] text-slate-400 font-mono uppercase tracking-widest">
+                            Meal Planner Cloud Version • Sync ID: {user?.uid?.substring(0,8) || 'Local Mode'}
                         </p>
                     </footer>
                 </div>
