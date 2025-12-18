@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OfficeApp 
+    xmlns="http://schemas.microsoft.com/office/appforoffice/1.1" 
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+    xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0" 
+    xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides" 
+    xsi:type="TaskPaneApp">
+
+  <!-- Unique ID for this version of the manifest -->
+  <Id>6f4e8b12-1234-4a5b-9c8d-e1f2a3b4c5d7</Id>
+  <Version>1.2.0.0</Version>
+  <ProviderName>My Vitality Planner</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="Vitality Planner v2" />
+  <Description DefaultValue="Interactive Meal Planner hosted on GitHub Pages."/>
+
+  <Hosts>
+    <Host Name="Workbook" />
+  </Hosts>
+  <DefaultSettings>
+    <!-- This MUST point to your HTML file, not the XML file -->
+    <SourceLocation DefaultValue="https://k-cucugliello.github.io/Meal-Plans/meal_planner_app.html" />
+  </DefaultSettings>
+
+  <Permissions>ReadWriteDocument</Permissions>
+</OfficeApp>
