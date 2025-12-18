@@ -1,26 +1,523 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<OfficeApp 
-    xmlns="http://schemas.microsoft.com/office/appforoffice/1.1" 
-    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
-    xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0" 
-    xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides" 
-    xsi:type="TaskPaneApp">
+import React, { useState, useEffect } from 'react';
+import { 
+  Settings, 
+  RotateCcw, 
+  ShoppingCart, 
+  Trash2, 
+  Plus, 
+  History, 
+  X, 
+  Star, 
+  ChevronRight,
+  UtensilsCrossed,
+  Ban
+} from 'lucide-react';
 
-  <!-- Unique ID for this version of the manifest -->
-  <Id>6f4e8b12-1234-4a5b-9c8d-e1f2a3b4c5d7</Id>
-  <Version>1.2.0.0</Version>
-  <ProviderName>My Vitality Planner</ProviderName>
-  <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="Vitality Planner v2" />
-  <Description DefaultValue="Interactive Meal Planner hosted on GitHub Pages."/>
+const App = () => {
+  // --- Initial Data ---
+  const initialRecipes = {
+    oats: { 
+      title: "Steel-cut Oats", 
+      baseServings: 1, 
+      ingredients: [
+        { qty: 0.5, unit: "cup", name: "oats" }, 
+        { qty: 1.5, unit: "cups", name: "milk" },
+        { qty: 2, unit: "", name: "dates" }
+      ], 
+      nutrition: { cal: 380, pro: "12g" } 
+    },
+    salmon: { 
+      title: "Salmon & Beets", 
+      baseServings: 1, 
+      ingredients: [
+        { qty: 6, unit: "oz", name: "salmon" }, 
+        { qty: 1, unit: "cup", name: "quinoa" },
+        { qty: 2, unit: "small", name: "beets" }
+      ], 
+      nutrition: { cal: 610, pro: "38g" } 
+    },
+    kitchari: { 
+      title: "Performance Kitchari", 
+      baseServings: 1, 
+      ingredients: [
+        { qty: 0.5, unit: "cup", name: "rice" }, 
+        { qty: 0.5, unit: "cup", name: "mung beans" },
+        { qty: 1, unit: "tbsp", name: "ghee" }
+      ], 
+      nutrition: { cal: 520, pro: "18g" } 
+    }
+  };
 
-  <Hosts>
-    <Host Name="Workbook" />
-  </Hosts>
-  <DefaultSettings>
-    <!-- This MUST point to your HTML file, not the XML file -->
-    <SourceLocation DefaultValue="https://k-cucugliello.github.io/Meal-Plans/meal_planner_app.html" />
-  </DefaultSettings>
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const slots = [
+    { id: 'b', label: 'Breakfast' },
+    { id: 'l', label: 'Lunch' },
+    { id: 'd', label: 'Dinner' }
+  ];
 
-  <Permissions>ReadWriteDocument</Permissions>
-</OfficeApp>
+  const defaultMeals = days.map(day => ({
+    day,
+    b: "oats",
+    l: "kitchari",
+    d: "salmon",
+    b_skipped: false,
+    l_skipped: false,
+    d_skipped: false
+  }));
+
+  // --- State Management ---
+  const [recipes, setRecipes] = useState(() => JSON.parse(localStorage.getItem('myRecipes_v5')) || initialRecipes);
+  const [currentMeals, setCurrentMeals] = useState(() => JSON.parse(localStorage.getItem('myVitalityPlan_v5')) || defaultMeals);
+  const [shoppingList, setShoppingList] = useState(() => JSON.parse(localStorage.getItem('myVitalityShopping_v5')) || []);
+  const [history, setHistory] = useState(() => JSON.parse(localStorage.getItem('myVitalityHistory_v5')) || {});
+  
+  const [activeModal, setActiveModal] = useState(null); // 'action' or 'manage'
+  const [selectedCell, setSelectedCell] = useState({ dayIdx: 0, slotId: 'b' });
+  const [localServings, setLocalServings] = useState(1);
+  const [newLog, setNewLog] = useState({ rating: 0, notes: '' });
+  const [recipeEdit, setRecipeEdit] = useState({ title: '', ingredientsRaw: '', cal: '', pro: '' });
+
+  // --- Effects ---
+  useEffect(() => localStorage.setItem('myRecipes_v5', JSON.stringify(recipes)), [recipes]);
+  useEffect(() => localStorage.setItem('myVitalityPlan_v5', JSON.stringify(currentMeals)), [currentMeals]);
+  useEffect(() => localStorage.setItem('myVitalityShopping_v5', JSON.stringify(shoppingList)), [shoppingList]);
+  useEffect(() => localStorage.setItem('myVitalityHistory_v5', JSON.stringify(history)), [history]);
+
+  // --- Helpers ---
+  const currentMealData = currentMeals[selectedCell.dayIdx];
+  const currentRecipeKey = currentMealData?.[selectedCell.slotId];
+  const currentRecipe = recipes[currentRecipeKey];
+  const isSkipped = currentMealData?.[`${selectedCell.slotId}_skipped`];
+
+  const getAverageRating = (dayIdx, slotId) => {
+    const logs = history[`${dayIdx}-${slotId}`] || [];
+    if (logs.length === 0) return 0;
+    return Math.round(logs.reduce((acc, log) => acc + log.rating, 0) / logs.length);
+  };
+
+  // --- Actions ---
+  const handleSkipToggle = () => {
+    const newMeals = [...currentMeals];
+    newMeals[selectedCell.dayIdx][`${selectedCell.slotId}_skipped`] = !isSkipped;
+    setCurrentMeals(newMeals);
+  };
+
+  const handleRecipeSwap = (key) => {
+    const newMeals = [...currentMeals];
+    newMeals[selectedCell.dayIdx][selectedCell.slotId] = key;
+    setCurrentMeals(newMeals);
+  };
+
+  const addToShoppingList = () => {
+    const ratio = localServings / (currentRecipe.baseServings || 1);
+    const newItems = currentRecipe.ingredients.map(ing => 
+      `${(ing.qty * ratio).toFixed(2)} ${ing.unit} ${ing.name}`
+    );
+    setShoppingList([...shoppingList, ...newItems]);
+    setActiveModal(null);
+  };
+
+  const saveLog = () => {
+    if (newLog.rating === 0) return;
+    const key = `${selectedCell.dayIdx}-${selectedCell.slotId}`;
+    const newHistory = { ...history };
+    if (!newHistory[key]) newHistory[key] = [];
+    newHistory[key].push({ ...newLog, date: new Date().toLocaleDateString() });
+    setHistory(newHistory);
+    setNewLog({ rating: 0, notes: '' });
+  };
+
+  const addNewRecipe = () => {
+    if (!recipeEdit.title) return;
+    const key = recipeEdit.title.toLowerCase().replace(/\s+/g, '_');
+    const ingredients = recipeEdit.ingredientsRaw.split('\n').filter(l => l.trim()).map(line => {
+      const parts = line.trim().split(' ');
+      return {
+        qty: parseFloat(parts[0]) || 0,
+        unit: parts[1] || '',
+        name: parts.slice(2).join(' ')
+      };
+    });
+    setRecipes({
+      ...recipes,
+      [key]: {
+        title: recipeEdit.title,
+        baseServings: 1,
+        ingredients,
+        nutrition: { cal: parseInt(recipeEdit.cal) || 0, pro: recipeEdit.pro }
+      }
+    });
+    setRecipeEdit({ title: '', ingredientsRaw: '', cal: '', pro: '' });
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 p-4 md:p-8 font-sans">
+      <div className="max-w-6xl mx-auto">
+        
+        {/* Header */}
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-indigo-900 flex items-center gap-2 italic">
+              Vitality Planner <span className="text-indigo-400 not-italic font-normal text-xl">v2</span>
+            </h1>
+            <p className="text-slate-500">Plan your nutrition, track your progress.</p>
+          </div>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => setActiveModal('manage')}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg font-semibold text-sm shadow-sm hover:bg-slate-50"
+            >
+              <Settings size={16} /> Manage Recipes
+            </button>
+            <button 
+              onClick={() => { if(confirm("Reset all data?")) { localStorage.clear(); window.location.reload(); }}}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-200 text-slate-700 rounded-lg font-semibold text-sm hover:bg-slate-300 transition-colors"
+            >
+              <RotateCcw size={16} /> Reset
+            </button>
+          </div>
+        </header>
+
+        {/* Grid Section */}
+        <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden mb-8">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-indigo-600 text-white">
+                  <th className="p-4 font-bold uppercase text-xs tracking-wider border-b border-indigo-700">Day</th>
+                  {slots.map(s => (
+                    <th key={s.id} className="p-4 font-bold uppercase text-xs tracking-wider border-b border-indigo-700 text-center">{s.label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {currentMeals.map((m, dayIdx) => (
+                  <tr key={m.day} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
+                    <td className="p-4 font-bold text-slate-500 bg-slate-50/50 text-center w-24">{m.day}</td>
+                    {slots.map(slot => {
+                      const recipe = recipes[m[slot]];
+                      const skipped = m[`${slot.id}_skipped`];
+                      const rating = getAverageRating(dayIdx, slot.id);
+                      
+                      return (
+                        <td 
+                          key={slot.id} 
+                          onClick={() => {
+                            setSelectedCell({ dayIdx, slotId: slot.id });
+                            setActiveModal('action');
+                          }}
+                          className={`p-4 text-center cursor-pointer transition-all border-l border-slate-100 relative group
+                            ${skipped ? 'bg-slate-100 opacity-60' : 'hover:bg-indigo-50/50'}
+                          `}
+                        >
+                          <div className={`text-sm font-semibold ${skipped ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                            {skipped ? 'Skipped' : (recipe?.title || 'Unknown')}
+                          </div>
+                          {!skipped && rating > 0 && (
+                            <div className="flex justify-center mt-1 text-amber-400">
+                              {[...Array(5)].map((_, i) => (
+                                <Star key={i} size={10} fill={i < rating ? "currentColor" : "none"} />
+                              ))}
+                            </div>
+                          )}
+                          {!skipped && <ChevronRight size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Shopping List Section */}
+        <div className="max-w-xl mx-auto bg-white rounded-2xl shadow-lg p-6 border border-slate-200">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold flex items-center gap-2">
+              <ShoppingCart size={20} className="text-indigo-600" /> Shopping List
+            </h2>
+            {shoppingList.length > 0 && (
+              <button 
+                onClick={() => setShoppingList([])}
+                className="text-xs font-bold text-red-500 hover:text-red-600 flex items-center gap-1"
+              >
+                <Trash2 size={12} /> CLEAR
+              </button>
+            )}
+          </div>
+          {shoppingList.length === 0 ? (
+            <p className="text-slate-400 text-center py-8 text-sm italic">Add ingredients from meal details to build your list.</p>
+          ) : (
+            <ul className="space-y-2">
+              {shoppingList.map((item, i) => (
+                <li key={i} className="flex items-center justify-between group p-2 hover:bg-slate-50 rounded-lg text-sm border-b border-slate-50 border-dashed">
+                  <span>{item}</span>
+                  <button 
+                    onClick={() => setShoppingList(shoppingList.filter((_, idx) => idx !== i))}
+                    className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <X size={14} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Action Modal */}
+        {activeModal === 'action' && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col animate-in fade-in zoom-in duration-200">
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">Meal Details</h3>
+                  <p className="text-xs font-bold text-indigo-500 uppercase tracking-widest">{currentMeals[selectedCell.dayIdx].day} • {slots.find(s => s.id === selectedCell.slotId).label}</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button 
+                    onClick={handleSkipToggle}
+                    className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold border transition-colors
+                      ${isSkipped 
+                        ? 'bg-emerald-50 text-emerald-600 border-emerald-200' 
+                        : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'}
+                    `}
+                  >
+                    {isSkipped ? <UtensilsCrossed size={14} /> : <Ban size={14} />}
+                    {isSkipped ? 'RE-ENABLE MEAL' : 'SKIP MEAL'}
+                  </button>
+                  <button onClick={() => setActiveModal(null)} className="p-2 hover:bg-slate-200 rounded-full text-slate-400">
+                    <X size={20} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6 md:p-8">
+                {isSkipped ? (
+                  <div className="text-center py-20 flex flex-col items-center">
+                    <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-slate-300 mb-4">
+                      <Ban size={40} />
+                    </div>
+                    <h4 className="text-xl font-bold text-slate-400 italic">This meal is currently skipped</h4>
+                    <p className="text-slate-400 text-sm mt-2">No logging or ingredients available for skipped slots.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                    {/* Left: Recipe & Ingredients */}
+                    <div>
+                      <div className="mb-6 pb-6 border-b border-slate-100">
+                        <label className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest block mb-2">Switch Recipe</label>
+                        <div className="flex flex-wrap gap-2">
+                          {Object.keys(recipes).map(k => (
+                            <button
+                              key={k}
+                              onClick={() => handleRecipeSwap(k)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all
+                                ${currentRecipeKey === k 
+                                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' 
+                                  : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'}
+                              `}
+                            >
+                              {recipes[k].title}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex justify-between items-start mb-6">
+                        <h2 className="text-2xl font-bold text-slate-800 italic">{currentRecipe.title}</h2>
+                        <div className="bg-indigo-50 px-4 py-2 rounded-xl border border-indigo-100 text-center">
+                          <label className="text-[10px] font-bold text-indigo-400 uppercase block mb-1">Servings</label>
+                          <input 
+                            type="number" 
+                            min="1" 
+                            max="12"
+                            value={localServings}
+                            onChange={(e) => setLocalServings(parseInt(e.target.value) || 1)}
+                            className="w-12 bg-transparent text-center font-bold text-indigo-700 text-lg focus:outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-8">
+                        <section>
+                          <h4 className="text-xs font-bold text-slate-400 uppercase mb-4 tracking-wider">Ingredients</h4>
+                          <ul className="space-y-2 text-sm">
+                            {currentRecipe.ingredients.map((ing, i) => (
+                              <li key={i} className="flex items-center gap-2">
+                                <span className="font-bold text-indigo-600 min-w-[40px]">
+                                  {(ing.qty * (localServings / currentRecipe.baseServings)).toFixed(1)}
+                                </span>
+                                <span className="text-slate-500 text-xs italic">{ing.unit}</span>
+                                <span className="text-slate-700">{ing.name}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </section>
+                        <section>
+                          <h4 className="text-xs font-bold text-slate-400 uppercase mb-4 tracking-wider">Nutrition</h4>
+                          <div className="space-y-3">
+                            <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                              <span className="block text-[10px] text-slate-400 uppercase">Est. Calories</span>
+                              <span className="text-lg font-bold text-slate-700">
+                                {Math.round(currentRecipe.nutrition.cal * (localServings / currentRecipe.baseServings))}
+                              </span>
+                            </div>
+                            <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                              <span className="block text-[10px] text-slate-400 uppercase">Protein</span>
+                              <span className="text-lg font-bold text-slate-700">{currentRecipe.nutrition.pro}</span>
+                            </div>
+                          </div>
+                        </section>
+                      </div>
+
+                      <button 
+                        onClick={addToShoppingList}
+                        className="w-full mt-8 bg-indigo-600 text-white py-3 rounded-xl font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
+                      >
+                        <ShoppingCart size={18} /> Add to Shopping List
+                      </button>
+                    </div>
+
+                    {/* Right: History & Logs */}
+                    <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 flex flex-col">
+                      <h4 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+                        <History size={18} className="text-indigo-500" /> Meal Logs
+                      </h4>
+                      
+                      {/* Log Form */}
+                      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6">
+                        <div className="flex gap-1 mb-3">
+                          {[1, 2, 3, 4, 5].map(s => (
+                            <button key={s} onClick={() => setNewLog({ ...newLog, rating: s })}>
+                              <Star size={20} className={s <= newLog.rating ? "text-amber-400 fill-amber-400" : "text-slate-200"} />
+                            </button>
+                          ))}
+                        </div>
+                        <textarea 
+                          placeholder="How did you feel after this meal?"
+                          className="w-full text-sm p-3 border border-slate-100 rounded-lg bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                          rows="3"
+                          value={newLog.notes}
+                          onChange={(e) => setNewLog({ ...newLog, notes: e.target.value })}
+                        />
+                        <button 
+                          onClick={saveLog}
+                          disabled={newLog.rating === 0}
+                          className="w-full mt-3 bg-slate-800 text-white py-2 rounded-lg text-xs font-bold disabled:opacity-50"
+                        >
+                          SAVE ENTRY
+                        </button>
+                      </div>
+
+                      <div className="flex-1 space-y-3 overflow-y-auto max-h-[300px]">
+                        {(history[`${selectedCell.dayIdx}-${selectedCell.slotId}`] || []).slice().reverse().map((h, i) => (
+                          <div key={i} className="bg-white p-3 rounded-xl border border-slate-100 shadow-sm relative overflow-hidden">
+                            <div className="flex justify-between items-center mb-1">
+                              <div className="flex text-amber-400">
+                                {[...Array(h.rating)].map((_, i) => <Star key={i} size={10} fill="currentColor" />)}
+                              </div>
+                              <span className="text-[10px] text-slate-400 italic">{h.date}</span>
+                            </div>
+                            <p className="text-xs text-slate-600 italic line-clamp-2">"{h.notes}"</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Manage Recipes Modal */}
+        {activeModal === 'manage' && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[85vh] overflow-hidden shadow-2xl flex flex-col">
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+                <h3 className="text-xl font-bold">Recipe Master List</h3>
+                <button onClick={() => setActiveModal(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400">
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-6 space-y-8">
+                {/* Add New Section */}
+                <section className="bg-indigo-50/50 p-6 rounded-2xl border border-indigo-100">
+                  <h4 className="text-sm font-bold text-indigo-700 uppercase mb-4 flex items-center gap-2">
+                    <Plus size={16} /> Add New Recipe
+                  </h4>
+                  <div className="space-y-3">
+                    <input 
+                      type="text" placeholder="Recipe Name" 
+                      className="w-full p-3 border border-indigo-100 rounded-xl bg-white text-sm"
+                      value={recipeEdit.title}
+                      onChange={(e) => setRecipeEdit({ ...recipeEdit, title: e.target.value })}
+                    />
+                    <textarea 
+                      placeholder="Ingredients (One per line: '0.5 cup oats')" 
+                      className="w-full p-3 border border-indigo-100 rounded-xl bg-white text-sm"
+                      rows="3"
+                      value={recipeEdit.ingredientsRaw}
+                      onChange={(e) => setRecipeEdit({ ...recipeEdit, ingredientsRaw: e.target.value })}
+                    />
+                    <div className="grid grid-cols-2 gap-3">
+                      <input 
+                        type="number" placeholder="Calories" 
+                        className="p-3 border border-indigo-100 rounded-xl bg-white text-sm"
+                        value={recipeEdit.cal}
+                        onChange={(e) => setRecipeEdit({ ...recipeEdit, cal: e.target.value })}
+                      />
+                      <input 
+                        type="text" placeholder="Protein (e.g. 25g)" 
+                        className="p-3 border border-indigo-100 rounded-xl bg-white text-sm"
+                        value={recipeEdit.pro}
+                        onChange={(e) => setRecipeEdit({ ...recipeEdit, pro: e.target.value })}
+                      />
+                    </div>
+                    <button 
+                      onClick={addNewRecipe}
+                      className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold text-sm"
+                    >
+                      CREATE RECIPE
+                    </button>
+                  </div>
+                </section>
+
+                {/* List Section */}
+                <section>
+                  <h4 className="text-sm font-bold text-slate-400 uppercase mb-4 tracking-widest">Saved Recipes</h4>
+                  <div className="space-y-3">
+                    {Object.keys(recipes).map(k => (
+                      <div key={k} className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-2xl group hover:border-indigo-200 transition-colors">
+                        <div>
+                          <span className="font-bold text-slate-700 block italic">{recipes[k].title}</span>
+                          <span className="text-[10px] text-slate-400 font-bold uppercase">{recipes[k].nutrition.cal} cal • {recipes[k].nutrition.pro} protein</span>
+                        </div>
+                        {!(k in initialRecipes) && (
+                          <button 
+                            onClick={() => {
+                              const next = { ...recipes };
+                              delete next[k];
+                              setRecipes(next);
+                            }}
+                            className="text-slate-300 hover:text-red-500 transition-colors"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default App;
